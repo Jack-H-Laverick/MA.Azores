@@ -1,0 +1,120 @@
+---
+title: "Choosing StrathE2E domain extent - NOMAR"
+author: "Jack H Laverick, University of Strathclyde"
+date: "`r format(Sys.time(), '%A %d %b')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.align = "center")
+
+Tidy_packages <- c("tidyverse", "data.table", "pbapply", "furrr", "viridis", "patchwork") # List handy data packages
+Geo_packages <- c("sf", "rnaturalearth",  "raster", "stars")                # List GIS packages
+lapply(c(Tidy_packages, Geo_packages), library, character.only = TRUE)      # Load packages
+source("./R scripts/@_Region file.R")                                       # Define project region 
+
+plan(multisession)                                                          # Choose the method to parallelise by
+
+domain <- readRDS("./Objects/Domains.rds")
+
+world <- ne_countries(scale = "medium", returnclass = "sf") %>%             # Get a world map
+  st_transform(crs = crs)                                                   # Assign polar projection
+
+
+```
+
+StrathE2E contains 3 ocean volumes. There's an inshore-offshore divide, and a shallow-deep divide. Only the offshore volume is split into shallow and deep. Choosing a shallow-deep boundary depth has knock-on consequences for the inshore-offshore divide, as the inshore zone will be defined as the sea surface to this depth. StrathE2E assumes that the volumes are well mixed, and any exchange between the deep and shallow compartments are controlled by vertical diffusivity at that depth. The boundary depth therefore needs to be deep enough to avoid excessive mixing between the volumes, while also considering how large the inshore zone will end up being. The spatial arrangement of StratheE2E is shown below.
+
+![](../Shared data/spatial schematic.svg)
+
+For the NOrth Mid-Atlantic Ridge we have inspected the distribution of vertical diffusivity values in the region from NEMO-MEDUSA model output. 60 m looks like a sensible depth to separate the shallow and deep layers.
+
+**We updated this too 100 m to capture the deeper chlorophyll for the region, according to https://doi.org/10.1016/j.seares.2013.04.016.** 
+
+As well as the vertical boundary depth, We need to choose the horizontal extent for the inshore and offshore zones of the model domain. When doing this we need to consider the following: 
+
+* The offshore zone should extend to the continental slope. 
+* Fishing activity is often high along the shelf edge, so this activity should be within in the model domain. 
+* The depth limits for the inshore zone will be 0 and the minimum depth for the offshore zone.
+* The inshore zone must be an area large enough to sample NEMO-MEDUSA model outputs.
+
+In StrathE2E terrestrial inputs can only reach the offshore zone by transiting through the inshore zone. In areas with very steep bathymetry it is possible the offshore zone polygons created above could contact land. We therefore also need to set a minimum distance from shore for the offshore zone. This ensures the inshore zone exists all along the coast. In practice this distance needs to allow a pixel of NEMO-MEDUSA model output to sit between the coast and offshore zone polygon. We chose a minimum distance from shore for the offshore zone of 3 km. This is a balance between the mean depth of the inshore zone, and capturing the data we need.
+
+We have suggested a 600 m maximum depth for the offshore zone sea floor as a start point. The offshore zone then extends to the edge of the EEZ, but with a "false bottom" that exchanges with the deep sea.
+
+Finally we need to "cut" the polygons defined by depths and distances from shore so that they don't extend around the whole world. Our first suggestion is to use the EEZ for the Azores. If there are reasons to choose different breaks, please let us know.
+
+This results in the following:
+
+```{r domain, eval = T}
+
+colours <- c(Inshore = "yellow", Offshore = "yellow3")
+
+ GEBCO <- read_stars("../Shared data/GEBCO_2020.nc", proxy = TRUE)
+ st_crs(GEBCO) <- 4326
+
+ crop <- domain %>% 
+   st_buffer(40000) %>% 
+   st_transform(4326) %>% 
+   st_bbox()
+ 
+ GEBCO <- GEBCO[crop] %>%
+   st_transform(crs) %>%
+   st_as_stars(downsample = 3)
+
+land <- units::set_units(0, "m")
+
+GEBCO[[1]][GEBCO[[1]] >= land] <- NA
+
+ggplot() +
+  geom_stars(data = GEBCO) +
+  viridis::scale_fill_viridis(name = "Elevation", option = "turbo") +
+  ggnewscale::new_scale_fill() +
+  geom_sf(data = domain, aes(fill = Shore), colour = "black", size = 0.1) +
+#  geom_sf(data = Region_mask, colour = "white", fill = NA) +
+  geom_sf(data = world, size = 0.1, fill = "black") +
+  scale_fill_manual(values = colours, name = "Zone") +
+  coord_sf(xlim = st_bbox(domain)[c(1,3)], ylim = st_bbox(domain)[c(2,4)]) + # Specify the plotting window for SF maps in this region
+  theme_minimal() +
+  labs(caption = "Suggested model area") +
+  NULL
+```
+
+The polygons for the inshore and offshore zones are shown in yellows. The bathymetry is plotted underneath in a rainbow palette, so you can see how the shelf extends beyond where we cut the domain. The white line shows the shape we used to cut the domain's extent.   
+
+To check how the proposed model domain relates to fishing activity, we plotted the cumulative fishing effort according to global fishing watch from 2017 - 2020:
+
+``` {r fishing, eval = TRUE}
+
+GFW <- readRDS("./Notes/Cache/domain_GFW.rds") %>% 
+  st_transform(crs = crs)
+
+ggplot() +
+  geom_sf(data = world, size = 0.1, fill = "grey30", colour = "white", size = 0.1) +
+  geom_sf(data = domain, fill = "grey", colour = "black", size = 0.1) +
+  geom_stars(data = GFW, colour = NA) +
+  geom_sf(data = domain, fill = NA, colour = "white", size = 0.2) +
+  viridis::scale_fill_viridis(na.value = NA, trans = "log10", option = "inferno") +
+  coord_sf(xlim = st_bbox(domain)[c(1,3)], ylim = st_bbox(domain)[c(2,4)]) + # Specify the plotting window for SF maps in this region
+  theme_minimal() +
+  labs(caption = "Total fishing effort") +
+  NULL
+
+```
+
+The model domain is shown in grey with white borders, while the fishing effort is shown as a heatmap on a log scale. By using the EEZ to define the model domain, we appear to capture all relevant fishing activity. Is the entire EEZ of interest to the case study? If not, please make some suggestions for altering the extent of the offshore zone. 
+
+
+``` {r Deep convection cached, eval = F}
+
+b <- readRDS("./Notes/Cache/domain_V_b.rds")
+
+b
+```
+
+``` {r Vertical diffusivity cached, eval = F}
+
+c <- readRDS("./Notes/Cache/domain_V_c.rds")
+
+c
+```

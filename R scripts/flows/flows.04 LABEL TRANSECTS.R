@@ -27,7 +27,7 @@ grid <- st_union(points) %>%                                                # Co
   arrange(x, y)                                                             # Order the polygons to match the points
 
 ggplot(grid) +                                                              # Check the polygons match correctly with points
-  geom_sf(aes(fill = Ice_conc), size = 0.05, colour = "white") +
+  geom_sf(aes(fill = Temperature), size = 0.05, colour = "white") +
   geom_sf(data = Edges, colour = "orange") +
   zoom +
   theme_minimal() +
@@ -41,27 +41,30 @@ ggsave("./Figures/flows/check.04.1.png")
 labelled <- st_intersection(Edges, grid) %>% 
   mutate(split_length = as.numeric(st_length(.))) %>% 
   select(x, y, slab_layer, Shore, split_length, Bathymetry) %>% 
-  characterise_flows(domains, precision = 10000) %>%                            # In which direction? (in or out of box and with which neighbour)
-  filter(Neighbour != "Offshore")                                               # Offshore as a neighbour is a rare artefact from resolution.
+  slice(-9883) %>%                                                          # Remove single dodgy transect
+  characterise_flows(domains, precision = 100000) %>%                       # In which direction? (in or out of box and with which neighbour)
+  filter(Neighbour != "Offshore")                                           # Offshore as a neighbour is a rare artefact from resolution.
 
-ggplot(labelled) +                                                              # Check segments are labelled
+ggplot(labelled) +                                                          # Check segments are labelled
   geom_sf(aes(colour = Neighbour)) +
   viridis::scale_colour_viridis(option = "viridis", na.value = "red", discrete = T) +
-  zoom +
+#  zoom +
   labs(caption = "Check the transects are correctly labelled by zone") +
   theme_minimal()
 
 ggsave("./Figures/flows/check.04.2.png")
 
 shallow <- mutate(labelled,
-                  thickness = ifelse(Bathymetry >= SDepth, SDepth, Bathymetry),
+                  thickness = case_when(Bathymetry >= SDepth ~ SDepth, 
+                                        Bathymetry < SDepth ~ Bathymetry),
                   weights = thickness*split_length) %>% 
   st_drop_geometry() %>% 
   select(-c(thickness, Bathymetry, split_length))
 
 deep <- mutate(labelled, 
                slab_layer = "D",
-               thickness = ifelse(Bathymetry > DDepth, (DDepth-SDepth), (Bathymetry-SDepth)),
+               thickness = case_when(Bathymetry >= DDepth ~ (DDepth-SDepth), 
+                                     Bathymetry <  DDepth ~ (Bathymetry-SDepth)),
                weights = thickness*split_length) %>% 
   st_drop_geometry() %>% 
   select(-c(thickness, Bathymetry, split_length))

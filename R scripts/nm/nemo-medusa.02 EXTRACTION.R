@@ -43,6 +43,8 @@ Bathymetry <- readRDS("./Objects/NA_grid.rds") %>%                          # Im
 
 #### Build summary scheme ####
 
+sf_use_s2(F)
+
 scheme <- scheme_strathE2E(get_spatial(paste0(all_files$Path[1], all_files$File[1]), grid_W = F),
                            Bathymetry, 60, 600, crop) %>% 
   select(x, y, layer, group, weight, slab_layer, longitude, latitude, Bathymetry) %>%   # Get a scheme to summarise for StrathE2E

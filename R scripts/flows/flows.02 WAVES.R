@@ -13,7 +13,8 @@ domains <- readRDS("./Objects/Domains.rds") %>%                             # Im
   filter(Shore == "Inshore") %>% 
   st_transform(crs = 4326)
 
-waves <- brick("../Shared data/Waves/waves.nc", varname = "swh")            # Import significant wave height time series
+waves <- brick("../Shared data/Waves/waves.nc", varname = "swh") %>%             # Import significant wave height time series
+  rotate()
 
 #### Calculate mean disturbance per habitat area, weighting by cell coverage ####
 
